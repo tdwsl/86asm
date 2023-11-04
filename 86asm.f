@@ -118,7 +118,7 @@ s" BX" 2, s" BP" 2,
 0 ,
 
 create regss
-s" CS" 2, s" DS" c, s" ES" c, s" SS" c,
+s" CS" 2, s" DS" 2, s" ES" 2, s" SS" 2,
 0 ,
 
 create branches
@@ -200,6 +200,11 @@ delim here delim - 2constant delim
 : .error
   filename 2@ type [char] : emit line-no @ 0 .r [char] : emit space ;
 
+: expect ( str len -- )
+  2dup parse-next str= 0= if
+    .error ." expected " type cr bye
+  else 2drop then ;
+
 : hton ( str len -- -1 | n 0 )
   ?dup 0= if drop -1 exit then
   0 swap 0 do
@@ -219,25 +224,51 @@ delim here delim - 2constant delim
     else 2drop unloop -1 exit then
   swap 1+ swap loop nip 0 ;
 
+here char " c, 1 2constant quote
+
+: shimmy ( str len i -- )
+  >r 1- r> do dup i + 1+ c@ over i + c! loop drop ;
+
+: parse-string ( -- str len )
+  \ quote expect
+  0 begin
+    dup line + c@ case
+    [char] \ of
+      line line-len shimmy line-len 1- to line-len
+      dup line + dup c@ case
+      [char] n of 10 endof
+      [char] t of 9 endof
+      [char] " of [char] " endof
+      [char] \ of [char] \ endof
+      .error ." unknown escape character " dup line + c@ emit cr bye
+      endcase swap c!
+    endof
+    [char] " of
+      line swap 2dup 1+ skip exit
+    endof
+    endcase
+  1+ dup line-len >= until
+  .error ." expected " [char] " emit cr bye ;
+
+: parse-char
+  parse-string 1- if .error ." expected char" cr bye then c@ ;
+
 defer expr
 defer -expr
 
-: expect ( str len -- )
-  2dup parse-next str= 0= if
-    .error ." expected " type cr bye
-  else 2drop then ;
-
 : atom ( -- n )
   parse-next 2dup s" -" str= if 2drop parse-next ton >r negate r>
+  else 2dup quote str= if 2drop parse-char 0
   else 2dup s" (" str= if 2drop expr 0 s" )" expect
   else 2dup ton if find-label-value 0= else nip nip 0 then
-  then then
+  then then then
   if .error ." expected value" cr bye then ;
 
 : -atom
   parse-next 2dup s" -" str= if parse-next 2drop
+  else 2dup quote str= if parse-char drop
   else 2dup s" (" str= if -expr s" )" expect
-  then then 2drop ;
+  then then then 2drop ;
 
 : term ( -- n )
   atom look-ahead 2dup s" *" str= if skip atom *
@@ -280,41 +311,13 @@ defer -expr
   2dup s" SEG"    str= if 2drop regss strin? exit then
   str= ;
 
-: match ( str len -- tf )
+: match? ( str len -- tf )
   line line-len 2>r
   'line line! 'line
   begin parse-next 'line parse-next 'line dup while
     (match) 0= if 2r> line! 0 exit then
   repeat
   2drop 2drop 2r> line! -1 ;
-
-: match [char] ? word count save-string postpone 2literal postpone match ;
-  immediate
-
-: shimmy ( str len i -- )
-  >r 1- r> do dup i + 1+ c@ over i + c! loop drop ;
-
-: parse-string ( -- str len )
-  0 1 skip
-  0 begin
-    dup line + c@ case
-    [char] \ of
-      line line-len shimmy line-len 1- to line-len
-      dup line + c@ case
-      [char] n of 10 endof
-      [char] t of 9 endof
-      [char] " of [char] " endof
-      [char] \ of [char] \ endof
-      .error ." unknown escape character " dup line + c@ emit cr bye
-      endcase
-      dup line + c!
-    endof
-    [char] " of
-      line swap 2dup 1+ skip exit
-    endof
-    endcase
-  1+ dup line-len >= until
-  .error ." expected " [char] " emit cr bye ;
 
 : b, memp @ c! 1 memp +! 1 org +! ;
 : w, dup memp @ c! 8 rshift memp @ 1+ c! 2 memp +! 2 org +! ;
@@ -328,11 +331,10 @@ defer -expr
 
 : eol? ?dup 0= if drop -1 else s" :" str= then ;
 
-here char " c, 1 2constant quote
 : db
   begin
-    look-ahead 2dup quote str= if
-      skip parse-string dup >r
+    look-ahead 2dup quote str= if skip-next
+      parse-string dup >r
       memp @ swap move
       r@ org +! r> memp +!
     else 2drop 0 defer-expr then
@@ -371,8 +373,8 @@ defer #
 : r8/16 (r8/16) 3 lshift ;
 
 : byte/word?
-  match byte? if _ 8! -1 exit then
-  match word? if _ 16! 1+ -1 exit then
+  s" byte" match? if _ 8! -1 exit then
+  s" word" match? if _ 16! 1+ -1 exit then
   0 ;
 
 : byte/word
@@ -381,118 +383,118 @@ defer #
   then ;
 
 : add ( u -- )
-  match r,r? if
+  s" r,r" match? if
     (r8/16) $c0 + _ r 8 * + b, exit then
-  match [bp],r? if
+  s" [bp],r" match? if
     _ _ _ _ r8/16 $46 + b, 0 b, exit then
-  match [bx],r? if
+  s" [bx],r" match? if
     _ _ _ _ r8/16 $07 + b, exit then
-  match [string],r? if
+  s" [string],r" match? if
     _ s swap _ _ r8/16 $04 + + b, exit then
-  match [base+string],r? if
+  s" [base+string],r" match? if
     _ b 2* _ s + swap _ _ r8/16 + b, exit then
-  match [base+string+#],r? if
+  s" [base+string+#],r" match? if
     _ b 2* _ s + swap _ { _ _ r8/16 $40 + + b, }8 exit then
-  match [bp+#],r? if
+  s" [bp+#],r" match? if
     _ _ _ { _ _ r8/16 $46 + b, }8 exit then
-  match [bx+#],r? if
+  s" [bx+#],r" match? if
     _ _ _ { _ _ r8/16 $47 + b, }8 exit then
-  match [#],r? if
+  s" [#],r" match? if
     _ { _ _ r8/16 $06 + b, }16 exit then
-  match #[base+string],r? if
+  s" #[base+string],r" match? if
     { _ b 2* _ s + swap _ _ r8/16 $80 + + b, }16 exit then
-  match #[bp],r? if
+  s" #[bp],r" match? if
     { _ _ _ _ r8/16 $86 + b, }16 exit then
-  match #[bx],r? if
+  s" #[bx],r" match? if
     { _ _ _ _ r8/16 $87 + b, }16 exit then
 
   2 +
-  match r,[bp]? if
+  s" r,[bp]" match? if
     r8/16 $46 + b, 0 b, _ _ _ _ exit then
-  match r,[bx]? if
+  s" r,[bx]" match? if
     r8/16 $07 + b, _ _ _ _ exit then
-  match r,[string]? if
+  s" r,[string]" match? if
     r8/16 $04 + _ _ s + b, _ exit then
-  match r,[base+string]? if
+  s" r,[base+string]" match? if
     r8/16 _ _ b 2* _ s + b, _ exit then
-  match r,[base+string+#]? if
+  s" r,[base+string+#]" match? if
     r8/16 _ _ b 2* _ s + + $40 + b, _ #8 _ exit then
-  match r,[bp+#]? if
+  s" r,[bp+#]" match? if
     r8/16 $46 + b, _ _ _ _ #8 _ exit then
-  match r,[bx+#]? if
+  s" r,[bx+#]" match? if
     r8/16 $47 + b, _ _ _ _ #8 _ exit then
-  match r,[#]? if
+  s" r,[#]" match? if
     r8/16 $06 + b, _ _ #16 _ exit then
-  match r,#[base+string]? if
+  s" r,#[base+string]" match? if
     r8/16 _ { _ b 2* _ s + + $80 + b, _ }16 exit then
-  match r,#[bp]? if
+  s" r,#[bp]" match? if
     r8/16 $86 + b, _ #16 _ _ _ exit then
-  match r,#[bx]? if
+  s" r,#[bx]" match? if
     r8/16 $87 + b, _ #16 _ _ _ exit then
   2 -
 
-  match al,#? if
+  s" al,#" match? if
     4 + b, _ _ #8 exit then
-  match ax,#? if
+  s" ax,#" match? if
     5 + b, _ _ #16 exit then
 
   dup $88 = if drop $00 $c6
-  else dup $80 + then
+  else dup %00111000 and swap $80 + then
 
-  match r,#? if
+  s" r,#" match? if
     (r8/16) $c0 + or b, _ # exit then
 
   byte/word? if
   b,
-  \ match r,#? if
+  \ s" r,#" match? if
     \ r 8 * $c0 + or b, _ # exit then
-  match [bp],#? if
+  s" [bp],#" match? if
     $46 or b, 0 b, _ _ _ _ # exit then
-  match [string],#? if
+  s" [string],#" match? if
     _ s $04 + or b, _ _ # exit then
-  match [base+string],#? if
+  s" [base+string],#" match? if
     _ b 2* _ s + or b, _ _ # exit then
-  match [base+string+#],#? if
+  s" [base+string+#],#" match? if
     _ b 2* _ s + $40 + or b, _ #8 _ _ # exit then
-  match [bp+#],#? if
+  s" [bp+#],#" match? if
     $46 or b, _ _ _ #8 _ _ # exit then
-  match [bx+#],r? if
+  s" [bx+#],r" match? if
     $47 or b, _ _ _ #8 _ _ # exit then
-  match [#],r? if
+  s" [#],r" match? if
     $06 or b, _ #16 _ _ # exit then
-  match #[base+string],#? if
+  s" #[base+string],#" match? if
     { _ b 2* _ s $80 + + or b, }16 _ _ # exit then
-  match #[bp],r? if
+  s" #[bp],r" match? if
     $86 or b, #16 _ _ _ _ # exit then
-  match #[bx],r? if
+  s" #[bx],r" match? if
     $87 or b, #16 _ _ _ _ # exit then
   then
 
   .error ." invalid instruction format" cr bye ;
 
 : mov
-  match al,[#]? if
+  s" al,[#]" match? if
     $a0 b, _ _ _ #16 _ exit then
-  match ax,[#]? if
+  s" ax,[#]" match? if
     $a1 b, _ _ _ #16 _ exit then
-  match [#],al? if
+  s" [#],al" match? if
     $a2 b, _ #16 _ _ _ exit then
-  match [#],ax? if
+  s" [#],ax" match? if
     $a3 b, _ #16 _ _ _ exit then
-  match r8,[#]? if
+  s" r8,[#]" match? if
     $b0 r8 + b, _ _ #16 _ exit then
-  match r16,[#]? if
+  s" r16,[#]" match? if
     $b8 r16 + b, _ _ #16 _ exit then
-  match byte [*],#? if
+  s" byte [*],#" match? if
     $88 add exit then
-  match word [*],#? if
+  s" word [*],#" match? if
     $88 add exit then
-  match r8,#? if
+  s" r8,#" match? if
     $b0 r8 + b, _ #8 exit then
-  match r16,#? if
+  s" r16,#" match? if
     $b8 r16 + b, _ #16 exit then
 
-  match [*],seg? match seg,[*]? or if
+  s" [*],seg" match? s" seg,[*]" match? or if
     regss to regs16b
     $8b add
     regs16 to regs16b
@@ -500,102 +502,98 @@ defer #
 
   $88 add ;
 
-: r/m-1 ( u -- )
-  match r? if
-    r8/16 $d0 + or b, exit then
+: r/m-1 ( u u -- )
+  s" r" match? if
+    (r8/16) $d0 + or b, exit then
 
   byte/word b,
 
-  match [bp]? if
+  s" [bp]" match? if
     _ _ _ $46 or b, $00 b, exit then
-  match [bx]? if
+  s" [bx]" match? if
     _ _ _ $07 or b, exit then
-  match [string]? if
+  s" [string]" match? if
     _ $04 s + or b, _ exit then
-  match [base+string]? if
+  s" [base+string]" match? if
     _ b 2* _ s + _ $00 + or b, exit then
-  match [base+string+#]? if
+  s" [base+string+#]" match? if
     _ b 2* _ s + _ $40 + or b, #8 _ exit then
-  match [bp+#]? if
+  s" [bp+#]" match? if
     _ b $46 + or b, _ #8 _ exit then
-  match [bx+#]? if
+  s" [bx+#]" match? if
     _ b $47 + or b, _ #8 _ exit then
-  match [#]? if
+  s" [#]" match? if
     $06 or b, _ #16 _ exit then
-  match #[base+string]? if
+  s" #[base+string]" match? if
     { _ b 2* _ s + $80 + or b, _ }16 exit then
-  match #[bp]? if
+  s" #[bp]" match? if
     $86 or b, #16 _ _ _ exit then
-  match #[bx]? if
+  s" #[bx]" match? if
     $87 or b, #16 _ _ _ exit then
 
   .error ." invalid instruction format" cr bye ;
 
 : inc
-  match r16? if $40 r16 + b,
+  s" r16" match? if $40 r16 + b,
   else $00 $fe r/m-1 then ;
 
 : dec
-  match r16? if $48 r16 + b,
+  s" r16" match? if $48 r16 + b,
   else $08 $fe r/m-1 then ;
 
 : jmp
   $e9 b, @16 ;
 
 : pop
-  match r16? if $58 r16 + b, exit then
-  match seg? if $07 seg + b, exit then
+  s" r16" match? if $58 r16 + b, exit then
+  s" seg" match? if $07 seg + b, exit then
   $00 $8f r/m-1 ;
 
 : push
-  match r16? if $50 r16 + b, exit then
-  match seg? if $06 seg + b, exit then
+  s" r16" match? if $50 r16 + b, exit then
+  s" seg" match? if $06 seg + b, exit then
   $30 $ff r/m-1 ;
 
 : eol parse-next dup -rot s" :" str= if 2drop drop
-  else if .error ." expected : or EOL" cr bye then then ;
-
-: eq" r> postpone 2dup postpone s" postpone str=
-  postpone if postpone 2drop >r ; immediate
-: /eq r> postpone eol postpone exit postpone then >r ; immediate
+  else if .error ." expected : or EOL" cr bye then then r> drop ;
 
 : asm-part
-  eq" :" exit then
-  eq" ;" r> drop exit then
+  2dup s" :" str= if 2drop exit then
+  2dup s" ;" str= if 2drop r> drop exit then
 
-  eq" ORG"  expr org ! /eq
-  eq" MOV"  mov /eq
-  eq" ADD"  $00 add /eq
-  eq" ADC"  $10 add /eq
-  eq" SUB"  $28 add /eq
-  eq" CMP"  $38 add /eq
-  eq" AND"  $20 add /eq
-  eq" OR"   $08 add /eq
-  eq" XOR"  $30 add /eq
-  eq" CALL" $e8 b, @16 /eq
-  eq" INT"  $cd b, #8 /eq
-  eq" DB"   db /eq
-  eq" JMP"  jmp /eq
-  eq" INC"  inc /eq
-  eq" DEC"  dec /eq
-  eq" DIV"  $30 $f6 r/m-1 /eq
-  eq" IDIV" $38 $f6 r/m-1 /eq
-  eq" MUL"  $20 $f6 r/m-1 /eq
-  eq" IMUL" $28 $f6 r/m-1 /eq
-  eq" NEG"  $18 $f6 r/m-1 /eq
-  eq" NOT"  $10 $f6 r/m-1 /eq
-  eq" PUSH" push /eq
-  eq" POP"  pop /eq
-  eq" RET"  $c3 b, /eq
+  2dup s" ORG"  str= if 2drop expr org ! eol then
+  2dup s" MOV"  str= if 2drop mov eol then
+  2dup s" ADD"  str= if 2drop $00 add eol then
+  2dup s" ADC"  str= if 2drop $10 add eol then
+  2dup s" SUB"  str= if 2drop $28 add eol then
+  2dup s" CMP"  str= if 2drop $38 add eol then
+  2dup s" AND"  str= if 2drop $20 add eol then
+  2dup s" OR"   str= if 2drop $08 add eol then
+  2dup s" XOR"  str= if 2drop $30 add eol then
+  2dup s" CALL" str= if 2drop $e8 b, @16 eol then
+  2dup s" INT"  str= if 2drop $cd b, #8 eol then
+  2dup s" DB"   str= if 2drop db eol then
+  2dup s" JMP"  str= if 2drop jmp eol then
+  2dup s" INC"  str= if 2drop inc eol then
+  2dup s" DEC"  str= if 2drop dec eol then
+  2dup s" DIV"  str= if 2drop $30 $f6 r/m-1 eol then
+  2dup s" IDIV" str= if 2drop $38 $f6 r/m-1 eol then
+  2dup s" MUL"  str= if 2drop $20 $f6 r/m-1 eol then
+  2dup s" IMUL" str= if 2drop $28 $f6 r/m-1 eol then
+  2dup s" NEG"  str= if 2drop $18 $f6 r/m-1 eol then
+  2dup s" NOT"  str= if 2drop $10 $f6 r/m-1 eol then
+  2dup s" PUSH" str= if 2drop push eol then
+  2dup s" POP"  str= if 2drop pop eol then
+  2dup s" RET"  str= if 2drop $c3 b, eol then
 
-  2dup branches strindex 1+ ?dup if 1- $f and $70 + b, 2drop @8 eol exit then
+  2dup branches strindex 1+ ?dup if 1- $f and $70 + b, 2drop @8 eol then
 
   2dup org @ -rot add-label parse-next s" :" str= 0= if
     .error ." expected : after label " type cr bye
   else 2drop then ;
 
 : asm-line
-  \ line@ type cr
+  line@ type cr
   begin parse-next ?dup while
     asm-part
   repeat drop ;
