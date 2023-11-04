@@ -133,6 +133,19 @@ s" nn" 2, s" nnn" 2, s" JP" 2, s" JNP" 2,
 s" JNGE" 2, s" JNL" 2, s" JNG" 2, s" JNLE" 2,
 0 ,
 
+create singles
+s" CLD" 2, s" STD" 2, s" HLT" 2, s" IRET" 2,
+create stringins
+s" CMPSB" 2, s" CMPSW" 2, s" LODSB" 2, s" LODSW" 2,
+s" SCASB" 2, s" SCASW" 2, s" STOSB" 2, s" STOSW" 2,
+0 ,
+
+create singles-c
+$fc c, $fd c, $f4 c, $cf c,
+create stringins-c
+$a6 c, $a7 c, $ac c, $ad c,
+$ae c, $af c, $aa c, $ab c,
+
 create delim
 char ( c, char ) c, char [ c, char ] c, char , c, char + c,
 char - c, char * c, char / c, char % c, char " c, char ' c,
@@ -381,6 +394,9 @@ defer #
     .error ." must specify operand size" cr bye
   then ;
 
+: invalid-format
+  .error ." invalid instruction format" cr bye ;
+
 : add ( u -- )
   s" r,r" match? if
     (r8/16) $c0 + _ r 8 * + b, exit then
@@ -466,8 +482,7 @@ defer #
   s" #[bx],r" match? if
     $87 or b, #16 _ _ _ _ # exit then
   then
-
-  .error ." invalid instruction format" cr bye ;
+  invalid-format ;
 
 : mov
   s" al,[#]" match? if
@@ -527,8 +542,7 @@ defer #
     $86 or b, #16 _ _ _ exit then
   s" #[bx]" match? if
     $87 or b, #16 _ _ _ exit then
-
-  .error ." invalid instruction format" cr bye ;
+  invalid-format ;
 
 : inc
   s" r16" match? if $40 r16 + b,
@@ -551,6 +565,19 @@ defer #
   s" seg" match? if $06 seg + b, exit then
   $30 $ff r/m-1 ;
 
+: rep b,
+  parse-next stringins strindex 1+ ?dup if 1- stringins-c + c@ b,
+  else .error ." expected string instruction" cr bye then ;
+
+: shift
+  s" r,1" match? if
+    $d0 (r8/16) + b, _ _ exit then
+  s" r,cl" match? if
+    $d2 (r8/16) + b, _ _ exit then
+  s" r,#" match? if
+    $c0 (r8/16) + b, _ #8 exit then
+  invalid-format ;
+
 : eol parse-next dup -rot s" :" str= if 2drop drop
   else if .error ." expected : or EOL" cr bye then then r> drop ;
 
@@ -571,6 +598,7 @@ defer #
   2dup s" INT"  str= if 2drop $cd b, #8 eol then
   2dup s" DB"   str= if 2drop db eol then
   2dup s" JMP"  str= if 2drop jmp eol then
+  2dup s" LOOP" str= if 2drop $e2 b, @8 eol then
   2dup s" INC"  str= if 2drop inc eol then
   2dup s" DEC"  str= if 2drop dec eol then
   2dup s" DIV"  str= if 2drop $30 $f6 r/m-1 eol then
@@ -579,10 +607,24 @@ defer #
   2dup s" IMUL" str= if 2drop $28 $f6 r/m-1 eol then
   2dup s" NEG"  str= if 2drop $18 $f6 r/m-1 eol then
   2dup s" NOT"  str= if 2drop $10 $f6 r/m-1 eol then
+  2dup s" SAL"  str= if 2drop $e0 shift eol then
+  2dup s" SHL"  str= if 2drop $e0 shift eol then
+  2dup s" SAR"  str= if 2drop $e8 shift eol then
+  2dup s" SHR"  str= if 2drop $e8 shift eol then
+  2dup s" ROL"  str= if 2drop $c0 shift eol then
+  2dup s" ROR"  str= if 2drop $c8 shift eol then
+  2dup s" RCL"  str= if 2drop $d0 shift eol then
+  2dup s" RCR"  str= if 2drop $d8 shift eol then
   2dup s" PUSH" str= if 2drop push eol then
   2dup s" POP"  str= if 2drop pop eol then
   2dup s" RET"  str= if 2drop $c3 b, eol then
+  2dup s" REP"  str= if 2drop $f3 rep eol then
+  2dup s" REPE" str= if 2drop $f3 rep eol then
+  2dup s" REPZ" str= if 2drop $f3 rep eol then
+  2dup s" REPNE" str= if 2drop $f2 rep eol then
+  2dup s" REPNZ" str= if 2drop $f2 rep eol then
 
+  2dup singles strindex 1+ ?dup if 1- singles-c + c@ b, 2drop eol then
   2dup branches strindex 1+ ?dup if 1- $f and $70 + b, 2drop @8 eol then
 
   2dup org @ -rot add-label parse-next s" :" str= 0= if
