@@ -578,12 +578,19 @@ defer #
     $c0 (r8/16) + b, _ #8 exit then
   invalid-format ;
 
-: eol parse-next dup -rot s" :" str= if 2drop drop
-  else if .error ." expected : or EOL" cr bye then then r> drop ;
+: expect-eol parse-next ?dup 0= if drop exit then
+  s" :" str= 0= if .error ." expected : or EOL" cr bye then ;
+
+: eol expect-eol r> drop ;
+
+defer asm-file
 
 : asm-part
   2dup s" :" str= if 2drop exit then
   2dup s" ;" str= if 2drop r> drop exit then
+
+  2dup s" INCLUDE" str= if 2drop
+    quote expect parse-string expect-eol asm-file exit then
 
   2dup s" ORG"  str= if 2drop expr org ! eol then
   2dup s" MOV"  str= if 2drop mov eol then
@@ -648,8 +655,8 @@ defer #
 
 : leave-file
   r>
-  r> close-file throw
   line-sz negate allot
+  r> close-file throw
   2r> filename 2! r> line-no !
   r> to (line)
   >r ;
@@ -662,14 +669,14 @@ defer #
   1 line-no +!
   swap >r ;
 
-: asm-file ( str len -- )
+:noname ( str len -- )
   enter-file
   begin
     read-next-line
   while
     asm-line
   repeat
-  leave-file ;
+  leave-file ; is asm-file
 
 : .labels
   hex
