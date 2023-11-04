@@ -230,7 +230,6 @@ here char " c, 1 2constant quote
   >r 1- r> do dup i + 1+ c@ over i + c! loop drop ;
 
 : parse-string ( -- str len )
-  \ quote expect
   0 begin
     dup line + c@ case
     [char] \ of
@@ -446,8 +445,6 @@ defer #
 
   byte/word? if
   b,
-  \ s" r,#" match? if
-    \ r 8 * $c0 + or b, _ # exit then
   s" [bp],#" match? if
     $46 or b, 0 b, _ _ _ _ # exit then
   s" [string],#" match? if
@@ -593,7 +590,6 @@ defer #
   else 2drop then ;
 
 : asm-line
-  line@ type cr
   begin parse-next ?dup while
     asm-part
   repeat drop ;
