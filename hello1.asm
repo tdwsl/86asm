@@ -2,6 +2,9 @@
 
     org 0100h
 
+_putc: equ 2
+_exit: equ 4c00h
+
     mov bx,hellomsg
     call puts
 
@@ -15,14 +18,14 @@
     mov dl,10
     call putc
 
-    mov ax,4c00h
+    mov ax,_exit
     int 21h
 
 hellomsg:
     db "Hello, world!",10,0
 
 putc:
-    mov ah,2
+    mov ah,_putc
     int 21h
     ret
 

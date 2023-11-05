@@ -357,6 +357,13 @@ defer -expr
     s" ," expect
   again ;
 
+: dw
+  begin
+    2 defer-expr
+    look-ahead eol? if exit then
+    s" ," expect
+  again ;
+
 : _ skip-next ;
 : r8  parse-next regs8 strindex
   dup -1 = if .error ." expected 8 bit register" cr bye then ;
@@ -581,6 +588,9 @@ defer #
     $c0 (r8/16) + b, _ #8 exit then
   invalid-format ;
 
+: equ nlabels 0= if .error ." expcted label before equ" cr bye then
+  expr nlabels 1- label label.value ! ;
+
 : expect-eol parse-next ?dup 0= if drop exit then
   s" :" str= 0= if .error ." expected : or EOL" cr bye then ;
 
@@ -596,6 +606,7 @@ defer asm-file
     quote expect parse-string expect-eol asm-file exit then
 
   2dup s" ORG"  str= if 2drop expr org ! eol then
+  2dup s" EQU"  str= if 2drop equ eol then
   2dup s" MOV"  str= if 2drop mov eol then
   2dup s" ADD"  str= if 2drop $00 add eol then
   2dup s" ADC"  str= if 2drop $10 add eol then
@@ -607,6 +618,7 @@ defer asm-file
   2dup s" CALL" str= if 2drop $e8 b, @16 eol then
   2dup s" INT"  str= if 2drop $cd b, #8 eol then
   2dup s" DB"   str= if 2drop db eol then
+  2dup s" DW"   str= if 2drop dw eol then
   2dup s" JMP"  str= if 2drop jmp eol then
   2dup s" LOOP" str= if 2drop $e2 b, @8 eol then
   2dup s" INC"  str= if 2drop inc eol then
