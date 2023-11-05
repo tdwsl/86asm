@@ -109,9 +109,10 @@ s" AH" 2, s" CH" 2, s" DH" 2, s" BH" 2,
 
 create regsn
 s" BX" 2, s" BP" 2,
-create regsi
+here
 s" SI" 2, s" DI" 2,
 0 ,
+constant regsi
 
 create regsb
 s" BX" 2, s" BP" 2,
@@ -135,16 +136,18 @@ s" JNGE" 2, s" JNL" 2, s" JNG" 2, s" JNLE" 2,
 
 create singles
 s" CLD" 2, s" STD" 2, s" HLT" 2, s" IRET" 2,
-create stringins
+here
 s" CMPSB" 2, s" CMPSW" 2, s" LODSB" 2, s" LODSW" 2,
 s" SCASB" 2, s" SCASW" 2, s" STOSB" 2, s" STOSW" 2,
 0 ,
+constant stringins
 
 create singles-c
 $fc c, $fd c, $f4 c, $cf c,
-create stringins-c
+here
 $a6 c, $a7 c, $ac c, $ad c,
 $ae c, $af c, $aa c, $ab c,
+constant stringins-c
 
 create delim
 char ( c, char ) c, char [ c, char ] c, char , c, char + c,
@@ -457,7 +460,7 @@ defer #
   else dup %00111000 and swap $80 + then
 
   s" r,#" match? if
-    (r8/16) $c0 + or b, _ # exit then
+    %11000111 and (r8/16) $c0 + or b, _ # exit then
 
   byte/word? if
   b,
