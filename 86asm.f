@@ -45,7 +45,8 @@ create labels label max-labels * allot
 create label-buf 40960 allot
 label-buf value label-p
 
-create memory 64 1024 * allot
+64 1024 * constant memory-sz
+create memory memory-sz allot
 variable memp
 memory memp !
 
@@ -598,12 +599,21 @@ defer #
 
 defer asm-file
 
+: fassert if .error ." failed to open " filename 2@ type cr bye then ;
+
+: incbin ( str len -- )
+  r/o open-file fassert >r
+  memp @ memory-sz memp @ memory - - r@ read-file throw memp +!
+  r> close-file throw ;
+
 : asm-part
   2dup s" :" str= if 2drop exit then
   2dup s" ;" str= if 2drop r> drop exit then
 
   2dup s" INCLUDE" str= if 2drop
     quote expect parse-string expect-eol asm-file exit then
+  2dup s" INCBIN" str= if 2drop
+    quote expect parse-string expect-eol incbin exit then
 
   2dup s" ORG"  str= if 2drop expr org ! eol then
   2dup s" EQU"  str= if 2drop equ eol then
@@ -664,7 +674,7 @@ defer asm-file
   line-no @ >r filename 2@ 2>r
   2dup filename 2!
   0 line-no !
-  r/o open-file throw >r
+  r/o open-file fassert >r
   here to (line) line-sz allot
   >r ;
 
